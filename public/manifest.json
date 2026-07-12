@@ -1,0 +1,16 @@
+{
+  "name": "Qrious",
+  "short_name": "Qrious",
+  "description": "Fog-of-war food discovery for Singapore hawker centres.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F5F5F4",
+  "theme_color": "#E2603A",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
