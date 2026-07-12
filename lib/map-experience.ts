@@ -1,5 +1,7 @@
 export type MapRadiusKm = 2 | 5 | 10;
 export const SINGAPORE_CENTER: [number, number] = [1.2834, 103.8516];
+export const DEFAULT_MAP_RADIUS_KM: MapRadiusKm = 2;
+export const MAP_RADIUS_OPTIONS: MapRadiusKm[] = [2, 5, 10];
 
 export function mapZoomForRadius(radiusKm: number): number {
   if (radiusKm <= 2) return 14;

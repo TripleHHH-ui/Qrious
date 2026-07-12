@@ -9,7 +9,10 @@ export type QuestEvent =
   | "quest_completed"
   | "profile_saved"
   | "referral_shared"
-  | "coupon_copied";
+  | "coupon_copied"
+  | "product_liked"
+  | "crowded_choice_warning"
+  | "crowded_route_confirmed";
 
 export function buildTrackingContext(url: string): Record<string, string> {
   const params = new URL(url).searchParams;

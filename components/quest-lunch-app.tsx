@@ -8,7 +8,8 @@ import { useEffect, useMemo, useState } from "react";
 import confetti from "canvas-confetti";
 import { track } from "@/lib/analytics";
 import { recordBackendEvent } from "@/lib/backend-events";
-import { applyFilters, getActiveCoupon, getCrewBoost, rankRestaurants } from "@/lib/quest";
+import { DEFAULT_MAP_RADIUS_KM, MAP_RADIUS_OPTIONS } from "@/lib/map-experience";
+import { applyFilters, DAILY_QUEST_BONUS, getActiveCoupon, getCrewBoost, rankRestaurants } from "@/lib/quest";
 import { restaurants } from "@/lib/restaurants";
 import type { Craving, Dietary, QueueStatus, Restaurant, RestaurantFilters } from "@/lib/types";
 import { useGameStore } from "@/store/use-game";
@@ -31,6 +32,12 @@ const queueCopy: Record<QueueStatus, { label: string; detail: string }> = {
   red: { label: "Quest detour?", detail: "16+ min wait" },
 };
 
+const budgetCopy: Record<Restaurant["price"], string> = {
+  1: "S$5–12",
+  2: "S$12–25",
+  3: "S$25+",
+};
+
 const badgeInfo = [
   { id: "first-bite", emoji: "🥄", name: "First Bite", hint: "Complete a quest" },
   { id: "hidden-gem-hunter", emoji: "💎", name: "Hidden Gem Hunter", hint: "Back a quiet local" },
@@ -40,7 +47,7 @@ const badgeInfo = [
 
 const defaultFilters: RestaurantFilters = {
   craving: "all",
-  maxDistanceKm: 3,
+  maxDistanceKm: DEFAULT_MAP_RADIUS_KM,
   queues: ["green", "amber", "red"],
   maxPrice: 3,
   dietary: "all",
@@ -65,7 +72,7 @@ function QueueDot({ status, pulse = false }: { status: QueueStatus; pulse?: bool
 }
 
 function DemoTag() {
-  return <span className="demo-tag" title="MVP queue readings are mocked behind a swappable QueueSource">DEMO QUEUE</span>;
+  return <span className="demo-tag" title="Estimated wait time. MVP readings are simulated until a live queue source is connected.">WAIT ESTIMATE</span>;
 }
 
 function CouponBadge({ restaurant, compact = false }: { restaurant: Restaurant; compact?: boolean }) {
@@ -78,6 +85,8 @@ function Onboarding({
   setStep,
   onPick,
   assigned,
+  alternatives,
+  onChoose,
   onGo,
   referred,
 }: {
@@ -85,6 +94,8 @@ function Onboarding({
   setStep: (step: OnboardingStep) => void;
   onPick: (craving: Craving) => void;
   assigned?: Restaurant;
+  alternatives: Restaurant[];
+  onChoose: (restaurant: Restaurant) => void;
   onGo: () => void;
   referred: boolean;
 }) {
@@ -126,17 +137,18 @@ function Onboarding({
 
         {step === "assigned" && assigned && (
           <motion.section key="assigned" className="assigned-screen" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <div className="assigned-map"><QuestMap restaurants={[assigned]} selected={assigned} onSelect={() => undefined} routeTo={assigned} /><div className="map-wash" /></div>
+            <div className="assigned-map"><QuestMap restaurants={[assigned]} selected={assigned} onSelect={() => undefined} routeTo={assigned} radiusKm={DEFAULT_MAP_RADIUS_KM} /><div className="map-wash" /></div>
             <motion.div className="quest-stamp" initial={{ scale: 2.2, opacity: 0, rotate: -12 }} animate={{ scale: 1, opacity: 1, rotate: -4 }} transition={{ delay: 0.65, type: "spring" }}>QUEST<br />FOUND!</motion.div>
             <motion.div className="assigned-card" initial={{ y: 300 }} animate={{ y: 0 }} transition={{ delay: 0.3, type: "spring", damping: 19 }}>
               <div className="sheet-handle" />
               <div className="restaurant-hero" style={{ background: assigned.image }}><span>{assigned.emoji}</span><div className="match-badge">{assigned.match}% MATCH</div><CouponBadge restaurant={assigned} /></div>
-              <div className="restaurant-title"><div><p className="eyebrow">YOUR FIRST QUEST</p><h2>{assigned.name}</h2></div><span className="price">{"£".repeat(assigned.price)}</span></div>
+              <div className="restaurant-title"><div><p className="eyebrow">YOUR FIRST QUEST</p><h2>{assigned.name}</h2></div><span className="budget-pill"><small>EST. BUDGET</small>{budgetCopy[assigned.price]}</span></div>
               <p>{assigned.description}</p>
               <div className="fact-row"><span>🚶 {Math.round(assigned.distanceKm * 12)} min</span><span><QueueDot status={assigned.queue} /> {queueCopy[assigned.queue].label}</span><DemoTag /></div>
+              {alternatives.length > 0 && <div className="alternate-picks"><div><b>Prefer another nearby option?</b><small>All match your craving and avoid red queues.</small></div>{alternatives.map((restaurant) => <button key={restaurant.id} onClick={() => onChoose(restaurant)}><span>{restaurant.emoji}</span><strong>{restaurant.name}</strong><small>{restaurant.distanceKm} km · {budgetCopy[restaurant.price]}</small><QueueDot status={restaurant.queue} /></button>)}</div>}
               {assigned.queue !== "green" && <div className="roam-nudge"><span>🧭</span><div><strong>Busy trail ahead</strong><small>Roam Mode has faster hidden gems ready.</small></div></div>}
               <button className="primary-button" onClick={onGo}>Start quest <span>→</span></button>
-              <button className="text-button" onClick={() => setStep("craving")}>Try another craving</button>
+              <button className="change-craving-button" onClick={() => setStep("craving")}>← Change craving</button>
             </motion.div>
           </motion.section>
         )}
@@ -152,9 +164,9 @@ function FiltersPanel({ filters, setFilters, onClose }: { filters: RestaurantFil
       <motion.section className="filter-panel" initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} onClick={(event) => event.stopPropagation()}>
         <div className="sheet-handle" /><div className="panel-title"><h2>Shape the quest</h2><button onClick={onClose}>Done</button></div>
         <label className="filter-label">Craving</label><div className="chip-row">{["all", ...cravings.map((item) => item.id)].map((item) => <button key={item} className={filters.craving === item ? "chip active" : "chip"} onClick={() => setFilters({ ...filters, craving: item as Craving | "all" })}>{item === "all" ? "Anything" : item}</button>)}</div>
-        <label className="filter-label">Walking distance <b>{filters.maxDistanceKm} km</b></label><input type="range" min="0.5" max="3" step="0.5" value={filters.maxDistanceKm} onChange={(event) => setFilters({ ...filters, maxDistanceKm: Number(event.target.value) })} />
+        <label className="filter-label">Search radius <b>{filters.maxDistanceKm} km</b></label><div className="radius-options">{MAP_RADIUS_OPTIONS.map((radius) => <button key={radius} className={filters.maxDistanceKm === radius ? "active" : ""} onClick={() => setFilters({ ...filters, maxDistanceKm: radius })}>{radius} km</button>)}</div>
         <label className="filter-label">Queue right now</label><div className="chip-row">{(["green", "amber", "red"] as QueueStatus[]).map((queue) => <button key={queue} className={filters.queues.includes(queue) ? "chip active" : "chip"} onClick={() => toggleQueue(queue)}><QueueDot status={queue} /> {queueCopy[queue].label}</button>)}</div>
-        <label className="filter-label">Price up to</label><div className="segmented">{([1, 2, 3] as const).map((price) => <button key={price} className={filters.maxPrice === price ? "active" : ""} onClick={() => setFilters({ ...filters, maxPrice: price })}>{"£".repeat(price)}</button>)}</div>
+        <label className="filter-label">Price up to</label><div className="segmented">{([1, 2, 3] as const).map((price) => <button key={price} className={filters.maxPrice === price ? "active" : ""} onClick={() => setFilters({ ...filters, maxPrice: price })}>{"$".repeat(price)}</button>)}</div>
         <label className="filter-label">Dietary</label><select value={filters.dietary} onChange={(event) => setFilters({ ...filters, dietary: event.target.value as Dietary | "all" })}><option value="all">No preference</option><option value="vegan">Vegan</option><option value="vegetarian">Vegetarian</option><option value="halal">Halal</option><option value="gluten-free">Gluten-free</option></select>
         <label className="toggle-row"><span><strong>💎 Hidden Gems only</strong><small>Send love to quieter locals</small></span><input type="checkbox" checked={filters.hiddenOnly} onChange={(event) => setFilters({ ...filters, hiddenOnly: event.target.checked })} /></label>
         <label className="toggle-row"><span><strong>✨ Quest bonus available</strong><small>Earn extra points today</small></span><input type="checkbox" checked={filters.bonusOnly} onChange={(event) => setFilters({ ...filters, bonusOnly: event.target.checked })} /></label>
@@ -165,8 +177,29 @@ function FiltersPanel({ filters, setFilters, onClose }: { filters: RestaurantFil
 }
 
 function RestaurantSheet({ restaurant, onGo, onRoam, onClose }: { restaurant: Restaurant; onGo: () => void; onRoam: () => void; onClose: () => void }) {
+  const { profile, activeQuest } = useGameStore();
   const [copied, setCopied] = useState(false);
+  const [riskingQueue, setRiskingQueue] = useState(false);
+  const [advice, setAdvice] = useState<{ message: string; recommendation: string; source: "openai" | "fallback" } | null>(null);
   const coupon = getActiveCoupon(restaurant);
+  const craving = activeQuest?.craving ?? restaurant.cravings[0];
+  const adviceAlternatives = useMemo(() => rankRestaurants(restaurants.filter((candidate) => candidate.id !== restaurant.id), craving, true).filter((candidate) => candidate.queue !== "red").slice(0, 3), [craving, restaurant.id]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/quest-advice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        mode: restaurant.queue === "red" ? "crowded_warning" : restaurant.queue === "amber" ? "filling_warning" : "recommendation",
+        profileName: profile.name,
+        craving,
+        selected: { name: restaurant.name, waitMinutes: restaurant.waitMinutes, distanceKm: restaurant.distanceKm, budget: budgetCopy[restaurant.price] },
+        alternatives: adviceAlternatives.map((candidate) => ({ name: candidate.name, waitMinutes: candidate.waitMinutes, distanceKm: candidate.distanceKm, budget: budgetCopy[candidate.price] })),
+      }),
+    }).then((response) => response.ok ? response.json() : null).then((result) => { if (result) setAdvice(result); }).catch(() => undefined);
+    return () => controller.abort();
+  }, [adviceAlternatives, craving, profile.name, restaurant]);
   const copyCoupon = async () => {
     if (!coupon) return;
     await navigator.clipboard?.writeText(coupon.code);
@@ -178,9 +211,10 @@ function RestaurantSheet({ restaurant, onGo, onRoam, onClose }: { restaurant: Re
     <motion.section className="restaurant-sheet" initial={{ y: 360 }} animate={{ y: 0 }} exit={{ y: 360 }} transition={{ type: "spring", damping: 24 }}>
       <div className="sheet-handle" /><button className="sheet-close" onClick={onClose}>×</button>
       <div className="restaurant-sheet-main"><div className="mini-photo" style={{ background: restaurant.image }}>{restaurant.emoji}</div><div><div className="tagline-row">{restaurant.hiddenGem && <span className="tiny-tag">💎 HIDDEN GEM</span>}{restaurant.bonusPoints > 0 && <span className="tiny-tag mango">+{restaurant.bonusPoints} PTS</span>}</div><h2>{restaurant.name}</h2><p>{restaurant.description}</p></div></div>
-      <div className="sheet-stats"><span><b>{restaurant.match}%</b> craving match</span><span><QueueDot status={restaurant.queue} pulse /> <b>{restaurant.waitMinutes} min</b> <DemoTag /></span><span><b>{restaurant.distanceKm} km</b> away</span></div>
+      <div className="sheet-stats"><span><b>{restaurant.match}%</b> craving match</span><span><QueueDot status={restaurant.queue} pulse /> <b>{restaurant.waitMinutes} min</b> <DemoTag /></span><span><b>{restaurant.distanceKm} km</b> away</span><span><b>{budgetCopy[restaurant.price]}</b> est. budget</span></div>
+      {restaurant.queue !== "red" && advice && <div className={`ai-advice ${restaurant.queue === "amber" ? "amber-advice" : ""}`}><span>{restaurant.queue === "amber" ? "😏" : "✨"}</span><div><small>{advice.source === "openai" ? "MUNCH AI" : "MUNCH’S TAKE"}{restaurant.queue === "amber" ? " · FILLING UP" : ""}</small><p>{advice.message}</p><em>{advice.recommendation}</em></div></div>}
       {coupon && <div className="coupon-strip"><span>🎟️</span><div><small>{coupon.verified ? "VERIFIED OFFER" : "DEMO OFFER"}</small><strong>{coupon.label}</strong><p>Show code <b>{coupon.code}</b> · ends {coupon.expiresAt}</p></div><button onClick={copyCoupon}>{copied ? "Copied!" : "Copy code"}</button></div>}
-      <div className="sheet-actions"><button className="primary-button" onClick={onGo}>Go here <span>→</span></button>{restaurant.queue !== "green" && <button className="roam-button" onClick={onRoam}>🧭 Roam instead</button>}</div>
+      <div className="sheet-actions">{restaurant.queue === "red" ? <>{riskingQueue ? <div className="risk-confirmation"><span>🙃</span><div><small>{advice?.source === "openai" ? "MUNCH AI HAS CONCERNS" : "MUNCH HAS CONCERNS"}</small><p>{advice?.message ?? `${profile.name.split(" ")[0]}, choosing a ${restaurant.waitMinutes}-minute queue is certainly one way to make lunch memorable.`}</p>{advice?.recommendation && <em>{advice.recommendation}</em>}</div><button className="primary-button" onClick={onRoam}>Fine, show me faster food</button><button className="risk-confirm-button" onClick={() => { track("crowded_route_confirmed", { restaurant_id: restaurant.id, wait_minutes: restaurant.waitMinutes }); onGo(); }}>Yes, route me anyway</button></div> : <><div className="queue-warning">This wait is too long. We recommend a faster nearby match.</div><button className="primary-button" onClick={onRoam}>Find a faster option <span>→</span></button><button className="risk-button" onClick={() => { setRiskingQueue(true); track("crowded_choice_warning", { restaurant_id: restaurant.id, wait_minutes: restaurant.waitMinutes }); }}>I’ll risk the queue 🙃</button></>}</> : <><button className="primary-button" onClick={onGo}>{restaurant.queue === "amber" ? "Queue anyway" : "Go here"} <span>→</span></button><button className="roam-button" onClick={onRoam}>🧭 {restaurant.queue === "amber" ? "Find faster" : "Other options"}</button></>}</div>
     </motion.section>
   );
 }
@@ -196,11 +230,11 @@ function MapScreen({ filters, onFilters, onComplete }: { filters: RestaurantFilt
   return (
     <section className="map-screen">
       <div className="map-topbar"><div className="brand-pill"><Mascot small /><b>QUESTLUNCH</b></div><button className="filter-button" onClick={onFilters}>⚙ Filters</button></div>
-      <div className="map-canvas"><QuestMap restaurants={mapRestaurants} selected={selected} onSelect={(restaurant) => selectRestaurant(restaurant.id)} routeTo={routeTo} /></div>
+      <div className="map-canvas"><QuestMap restaurants={mapRestaurants} selected={selected} onSelect={(restaurant) => selectRestaurant(restaurant.id)} routeTo={routeTo} radiusKm={filters.maxDistanceKm} /></div>
       <div className="map-legend"><DemoTag /><span><QueueDot status="green" /> quick</span><span><QueueDot status="amber" /> filling up</span><span><QueueDot status="red" /> busy</span></div>
       {roaming && <motion.div className="roam-banner" initial={{ scale: 0.8 }} animate={{ scale: 1 }}><span>🧭</span><div><b>Roam Mode</b><small>Three smarter trails just appeared</small></div><button onClick={() => setRoaming(false)}>×</button></motion.div>}
       {visible.length === 0 && <div className="empty-map"><Mascot small /><b>No quests fit that combo</b><button onClick={onFilters}>Loosen filters</button></div>}
-      <AnimatePresence>{selected && <RestaurantSheet restaurant={selected} onClose={() => selectRestaurant(null)} onGo={() => { startRoute(selected, roaming); setRoaming(false); selectRestaurant(null); }} onRoam={() => { setRoaming(true); selectRestaurant(null); }} />}</AnimatePresence>
+      <AnimatePresence>{selected && <RestaurantSheet key={selected.id} restaurant={selected} onClose={() => selectRestaurant(null)} onGo={() => { startRoute(selected, roaming); setRoaming(false); selectRestaurant(null); }} onRoam={() => { setRoaming(true); selectRestaurant(null); }} />}</AnimatePresence>
       {routeTo && !selected && <motion.div className="route-card" initial={{ y: 100 }} animate={{ y: 0 }}><span className="route-emoji">{routeTo.emoji}</span><div><small>YOU’RE ON THE TRAIL</small><b>{routeTo.name}</b><span>{Math.round(routeTo.distanceKm * 12)} min walk · {routeTo.waitMinutes} min queue</span></div><button onClick={() => onComplete(routeTo)}>I’m here!</button></motion.div>}
     </section>
   );
@@ -208,16 +242,26 @@ function MapScreen({ filters, onFilters, onComplete }: { filters: RestaurantFilt
 
 function QuestsScreen({ onStart }: { onStart: () => void }) {
   const { profile, activeQuest, assignQuest } = useGameStore();
+  const [liked, setLiked] = useState(false);
   const featured = restaurants.slice(1, 5);
+  const today = new Date().toISOString().slice(0, 10);
+  const dailyDone = (profile.completedDailyQuestDates ?? []).includes(today);
+  const dailyTarget = rankRestaurants(restaurants, "spicy", false).find((restaurant) => restaurant.distanceKm <= 2) ?? rankRestaurants(restaurants, "surprise", false)[0];
+  const startDailyQuest = () => {
+    if (!dailyTarget) return;
+    assignQuest(dailyTarget, "spicy");
+    onStart();
+  };
   return (
     <section className="content-screen quests-screen">
       <header className="home-header"><div><p>GOOD AFTERNOON,</p><h1>{profile.name.split(" ")[0]} 👋</h1></div><div className="score-pill"><span>🔥 {profile.streak}</span><span>✦ {profile.points}</span></div></header>
-      <motion.div className="daily-quest-card" whileHover={{ rotate: -0.4 }}>
-        <div className="daily-sun">☀</div><p className="eyebrow">TODAY’S ADVENTURE</p><h2>Let your craving<br />choose the way.</h2><p>A fresh quest is waiting nearby.</p><button className="primary-button ink-button" onClick={onStart}>Start today’s quest <span>→</span></button><Mascot small /></motion.div>
+      <motion.div className={`daily-quest-card ${dailyDone ? "daily-complete" : ""}`} whileHover={{ rotate: -0.4 }}>
+        <div className="daily-sun">☀</div><p className="eyebrow">TODAY’S QUEST · QUEUE DODGE</p><h2>{dailyDone ? "Queue defeated." : "Skip the crowded choice."}</h2><p>{dailyDone ? "Come back tomorrow for a new challenge." : "We’ll find a spicy match with a low wait estimate within 2 km—then keep a fallback ready."}</p><div className="daily-objectives"><span>🌶️ Pick spicy</span><span>🟢 Low wait</span><span>📍 Check in</span></div><div className="daily-reward"><b>{dailyDone ? "✓ COMPLETE" : `+${DAILY_QUEST_BONUS} BONUS`}</b><small>{dailyDone ? "Smart pick saved" : "for arriving at a viable pick"}</small></div><button className="primary-button ink-button" onClick={startDailyQuest} disabled={dailyDone}>{dailyDone ? "Quest complete" : "Find a faster lunch"} <span>{dailyDone ? "✓" : "→"}</span></button><Mascot small /></motion.div>
       {activeQuest && activeQuest.status !== "completed" && <div className="active-strip"><span>{restaurants.find((item) => item.id === activeQuest.restaurantId)?.emoji}</span><div><small>ACTIVE QUEST</small><b>{restaurants.find((item) => item.id === activeQuest.restaurantId)?.name}</b></div><button onClick={onStart}>View map →</button></div>}
       <div className="section-heading"><div><p className="eyebrow">NEAR YOU NOW</p><h2>Quick quests</h2></div><DemoTag /></div>
-      <div className="nearby-scroll">{featured.map((restaurant) => <button key={restaurant.id} className="nearby-card" onClick={() => { assignQuest(restaurant, restaurant.cravings[0]); onStart(); }}><div className="nearby-photo" style={{ background: restaurant.image }}><span>{restaurant.emoji}</span>{restaurant.bonusPoints > 0 && <b>+{restaurant.bonusPoints}</b>}<CouponBadge restaurant={restaurant} compact /></div><div className="nearby-name"><strong>{restaurant.name}</strong><QueueDot status={restaurant.queue} /></div><p>{restaurant.distanceKm} km · {"£".repeat(restaurant.price)}</p>{restaurant.hiddenGem && <small>💎 Hidden gem</small>}</button>)}</div>
+      <div className="nearby-scroll">{featured.map((restaurant) => <button key={restaurant.id} className="nearby-card" onClick={() => { assignQuest(restaurant, restaurant.cravings[0]); onStart(); }}><div className="nearby-photo" style={{ background: restaurant.image }}><span>{restaurant.emoji}</span>{restaurant.bonusPoints > 0 && <b>+{restaurant.bonusPoints}</b>}<CouponBadge restaurant={restaurant} compact /></div><div className="nearby-name"><strong>{restaurant.name}</strong><QueueDot status={restaurant.queue} /></div><p>{restaurant.distanceKm} km · Est. {budgetCopy[restaurant.price]}</p>{restaurant.hiddenGem && <small>💎 Hidden gem</small>}</button>)}</div>
       <div className="friend-prompt"><span className="avatar-stack">🧑🏽‍🍳👩🏻‍🎨🧑🏼‍💻</span><div><b>Lunch is better with rivals.</b><p>Invite a friend. You both earn a Quest Pass.</p></div><button onClick={() => navigator.clipboard?.writeText(`${window.location.origin}?ref=${profile.referralCode}`)}>Invite</button></div>
+      <div className={`like-prompt ${liked ? "liked" : ""}`}><div><b>{liked ? "Thanks — lunch is on us to improve." : "Would you use Kiasu for lunch?"}</b><p>{liked ? "Your vote was recorded." : "One tap helps us validate the idea."}</p></div><button disabled={liked} onClick={() => { if (liked) return; setLiked(true); track("product_liked", { screen: "quests_home", active_quest: Boolean(activeQuest) }); }}>{liked ? "✓ Liked" : "👍 Yes"}</button></div>
     </section>
   );
 }
@@ -261,12 +305,12 @@ function ProfileScreen() {
   );
 }
 
-function PayoffModal({ restaurant, onClose }: { restaurant: Restaurant; onClose: () => void }) {
+function PayoffModal({ restaurant, dailyBonus, onClose }: { restaurant: Restaurant; dailyBonus: number; onClose: () => void }) {
   const { profile, signUp } = useGameStore();
   const [name, setName] = useState("");
   const [shared, setShared] = useState(false);
   const boost = getCrewBoost(profile.crewLinks ?? 0);
-  const earned = Math.round((100 + restaurant.bonusPoints) * boost);
+  const earned = Math.round((100 + restaurant.bonusPoints) * boost) + dailyBonus;
   const cardUrl = `/api/share-card?place=${encodeURIComponent(restaurant.name)}&emoji=${encodeURIComponent(restaurant.emoji)}&points=${earned}&streak=${profile.streak}`;
   useEffect(() => { confetti({ particleCount: 150, spread: 85, origin: { y: 0.55 }, colors: ["#e1623f", "#f7b32b", "#7fb069", "#fff7ee"] }); }, []);
   const share = async () => {
@@ -283,7 +327,7 @@ function PayoffModal({ restaurant, onClose }: { restaurant: Restaurant; onClose:
         <button className="sheet-close" onClick={onClose}>×</button><Mascot mood="party" />
         <p className="eyebrow">QUEST COMPLETE!</p><h1>You found<br /><em>{restaurant.name}</em></h1>
         <div className="reward-burst"><strong>+{earned}</strong><span>QUEST POINTS · {boost}× CREW</span></div>
-        <div className="payoff-stats"><span>🔥 <b>{profile.streak} day</b> streak</span>{restaurant.hiddenGem && <span>💎 <b>Hidden Gem</b> found</span>}</div>
+        <div className="payoff-stats"><span>🔥 <b>{profile.streak} day</b> streak</span>{dailyBonus > 0 && <span>🧭 <b>+{dailyBonus} Queue Dodge</b></span>}{restaurant.hiddenGem && <span>💎 <b>Hidden Gem</b> found</span>}</div>
         <div className="share-preview"><Image src={cardUrl} alt={`Share card for ${restaurant.name}`} width={66} height={96} unoptimized /><div><b>Your story card is ready</b><p>Brag tastefully. Invite shamelessly.</p><button onClick={share}>{shared ? "Link copied!" : "Share the quest ↗"}</button></div></div>
         {!profile.signedUp ? <div className="save-streak"><p className="eyebrow">DON’T LOSE THE FLAME</p><h2>Save your streak</h2><p>Your first quest was free. Choose a name to keep your points and referral code on this device.</p><div><input placeholder="Your explorer name" value={name} onChange={(event) => setName(event.target.value)} /><button onClick={() => { signUp(name); track("profile_saved", { after_first_quest: true }); onClose(); }}>Save it</button></div><small>MVP guest profile · no real authentication yet</small></div> : <button className="primary-button" onClick={onClose}>Back to the map</button>}
       </motion.section>
@@ -299,9 +343,10 @@ export default function QuestLunchApp() {
   const [tab, setTab] = useState<Tab>("quests");
   const [filters, setFilters] = useState(defaultFilters);
   const [showFilters, setShowFilters] = useState(false);
-  const [completed, setCompleted] = useState<Restaurant | null>(null);
+  const [completed, setCompleted] = useState<{ restaurant: Restaurant; dailyBonus: number } | null>(null);
   const referred = Boolean(referral);
   const assigned = game.activeQuest ? restaurants.find((restaurant) => restaurant.id === game.activeQuest?.restaurantId) : undefined;
+  const alternatives = game.activeQuest ? rankRestaurants(restaurants.filter((restaurant) => restaurant.id !== assigned?.id), game.activeQuest.craving, false).filter((restaurant) => restaurant.distanceKm <= defaultFilters.maxDistanceKm).slice(0, 3) : [];
 
   useEffect(() => {
     if (referral) {
@@ -313,17 +358,18 @@ export default function QuestLunchApp() {
   }, [referral]);
 
   const pickCraving = (craving: Craving) => {
-    const match = rankRestaurants(restaurants, craving, false)[0];
-    game.assignQuest(match, craving);
+    const candidate = rankRestaurants(restaurants, craving, false)[0] ?? rankRestaurants(restaurants, "surprise", false)[0];
+    if (!candidate) return;
+    game.assignQuest(candidate, craving);
     track("craving_selected", { craving });
-    track("quest_assigned", { craving, restaurant_id: match.id, referral_visitor: referred });
-    void recordBackendEvent("quest_assigned", { craving, restaurantId: match.id });
+    track("quest_assigned", { craving, restaurant_id: candidate.id, referral_visitor: referred });
+    void recordBackendEvent("quest_assigned", { craving, restaurantId: candidate.id });
     setStep("assigned");
   };
   const beginFirstQuest = () => { if (assigned) { game.startRoute(assigned); track("quest_started", { restaurant_id: assigned.id }); void recordBackendEvent("quest_started", { restaurantId: assigned.id }); } game.finishOnboarding(); setTab("map"); };
-  const finishQuest = (restaurant: Restaurant) => { game.finishQuest(restaurant); track("quest_completed", { restaurant_id: restaurant.id, hidden_gem: restaurant.hiddenGem, crew_boost: getCrewBoost(game.profile.crewLinks ?? 0) }); void recordBackendEvent("quest_completed", { restaurantId: restaurant.id }); setCompleted(restaurant); };
+  const finishQuest = (restaurant: Restaurant) => { const today = new Date().toISOString().slice(0, 10); const dailyBonus = restaurant.queue !== "red" && !(game.profile.completedDailyQuestDates ?? []).includes(today) ? DAILY_QUEST_BONUS : 0; game.finishQuest(restaurant); track("quest_completed", { restaurant_id: restaurant.id, hidden_gem: restaurant.hiddenGem, crew_boost: getCrewBoost(game.profile.crewLinks ?? 0), daily_bonus: dailyBonus }); void recordBackendEvent("quest_completed", { restaurantId: restaurant.id }); setCompleted({ restaurant, dailyBonus }); };
 
-  if (!game.onboardingComplete) return <Onboarding step={step} setStep={setStep} onPick={pickCraving} assigned={assigned} onGo={beginFirstQuest} referred={referred} />;
+  if (!game.onboardingComplete) return <Onboarding step={step} setStep={setStep} onPick={pickCraving} assigned={assigned} alternatives={alternatives} onChoose={(restaurant) => game.assignQuest(restaurant, game.activeQuest?.craving ?? restaurant.cravings[0])} onGo={beginFirstQuest} referred={referred} />;
 
   return (
     <div className="app-shell">
@@ -337,7 +383,7 @@ export default function QuestLunchApp() {
       </AnimatePresence>
       <nav className="bottom-nav" aria-label="Main navigation">{([{ id: "map", icon: "⌖", label: "Map" }, { id: "quests", icon: "⚑", label: "Quests" }, { id: "rewards", icon: "✦", label: "Rewards" }, { id: "profile", icon: "☺", label: "Profile" }] as const).map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><span>{item.icon}</span><small>{item.label}</small></button>)}</nav>
       <AnimatePresence>{showFilters && <FiltersPanel filters={filters} setFilters={setFilters} onClose={() => setShowFilters(false)} />}</AnimatePresence>
-      <AnimatePresence>{completed && <PayoffModal restaurant={completed} onClose={() => setCompleted(null)} />}</AnimatePresence>
+      <AnimatePresence>{completed && <PayoffModal restaurant={completed.restaurant} dailyBonus={completed.dailyBonus} onClose={() => setCompleted(null)} />}</AnimatePresence>
     </div>
   );
 }

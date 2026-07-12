@@ -1,5 +1,7 @@
 import type { Craving, PlayerProfile, Restaurant, RestaurantCoupon, RestaurantFilters } from "./types";
 
+export const DAILY_QUEST_BONUS = 75;
+
 export function getActiveCoupon(restaurant: Restaurant, today = new Date().toISOString().slice(0, 10)): RestaurantCoupon | undefined {
   return restaurant.coupon && restaurant.coupon.expiresAt >= today ? restaurant.coupon : undefined;
 }
@@ -20,8 +22,11 @@ export function rankRestaurants(
   craving: Craving,
   roamMode: boolean,
 ): Restaurant[] {
-  return restaurants
-    .filter((restaurant) => craving === "surprise" || restaurant.cravings.includes(craving))
+  const cravingMatches = restaurants.filter((restaurant) => craving === "surprise" || restaurant.cravings.includes(craving));
+  const viableMatches = cravingMatches.filter((restaurant) => restaurant.queue !== "red");
+  const candidates = roamMode ? cravingMatches : viableMatches;
+
+  return candidates
     .map((restaurant) => {
       const roamBoost = roamMode
         ? (restaurant.hiddenGem ? 35 : 0) + restaurant.bonusPoints / 4 + (restaurant.queue === "green" ? 20 : restaurant.queue === "amber" ? 5 : -20)
@@ -57,6 +62,7 @@ export function createGuestProfile(): PlayerProfile {
     badges: [],
     completedRestaurantIds: [],
     streakDates: [],
+    completedDailyQuestDates: [],
     signedUp: false,
   };
 }
@@ -85,5 +91,21 @@ export function completeQuest(
     badges: [...badges],
     completedRestaurantIds: [...profile.completedRestaurantIds, restaurant.id],
     streakDates: [...profile.streakDates, date],
+  };
+}
+
+export function completeDailyQuest(
+  profile: PlayerProfile,
+  restaurant: Restaurant,
+  date: string,
+): PlayerProfile {
+  const completed = completeQuest(profile, restaurant, date);
+  const dailyDates = profile.completedDailyQuestDates ?? [];
+  if (completed === profile || restaurant.queue === "red" || dailyDates.includes(date)) return completed;
+
+  return {
+    ...completed,
+    points: completed.points + DAILY_QUEST_BONUS,
+    completedDailyQuestDates: [...dailyDates, date],
   };
 }

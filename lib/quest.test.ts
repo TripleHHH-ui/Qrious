@@ -3,6 +3,7 @@ import type { Restaurant } from "./types";
 import {
   addCrewLink,
   applyFilters,
+  completeDailyQuest,
   completeQuest,
   createGuestProfile,
   getActiveCoupon,
@@ -51,8 +52,12 @@ const restaurants: Restaurant[] = [
 ];
 
 describe("quest matching", () => {
-  it("assigns the strongest craving match as the main quest", () => {
-    expect(rankRestaurants(restaurants, "spicy", false)[0].id).toBe("busy-spicy");
+  it("never prioritizes a red queue over a viable craving match", () => {
+    expect(rankRestaurants(restaurants, "spicy", false)[0].id).toBe("quiet-spicy");
+  });
+
+  it("returns no normal quest when every matching queue is red", () => {
+    expect(rankRestaurants([restaurants[0]], "spicy", false)).toEqual([]);
   });
 
   it("weights low-traffic hidden gems and bonuses first in Roam Mode", () => {
@@ -149,5 +154,21 @@ describe("Quest Crew Boost", () => {
     const profile = { ...createGuestProfile(), crewLinks: 2 };
 
     expect(addCrewLink(profile).crewLinks).toBe(3);
+  });
+});
+
+describe("today's Queue Dodge quest", () => {
+  it("awards a one-time bonus after completing a low-wait destination", () => {
+    const completed = completeDailyQuest(createGuestProfile(), restaurants[1], "2026-07-12");
+
+    expect(completed.points).toBe(215);
+    expect(completed.completedDailyQuestDates).toEqual(["2026-07-12"]);
+  });
+
+  it("does not reward a red-queue destination", () => {
+    const completed = completeDailyQuest(createGuestProfile(), restaurants[0], "2026-07-12");
+
+    expect(completed.points).toBe(100);
+    expect(completed.completedDailyQuestDates).toEqual([]);
   });
 });

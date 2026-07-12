@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { mapZoomForRadius, shouldShowMapNudge, SINGAPORE_CENTER } from "./map-experience";
+import { DEFAULT_MAP_RADIUS_KM, MAP_RADIUS_OPTIONS, mapZoomForRadius, shouldShowMapNudge, SINGAPORE_CENTER } from "./map-experience";
 
 it("falls back to central Singapore", () => {
   expect(SINGAPORE_CENTER).toEqual([1.2834, 103.8516]);
+});
+
+it("starts at 2 km and offers 2, 5, and 10 km radii", () => {
+  expect(DEFAULT_MAP_RADIUS_KM).toBe(2);
+  expect(MAP_RADIUS_OPTIONS).toEqual([2, 5, 10]);
 });
 
 describe("quest map radius", () => {

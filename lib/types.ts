@@ -52,6 +52,7 @@ export interface PlayerProfile {
   badges: BadgeId[];
   completedRestaurantIds: string[];
   streakDates: string[];
+  completedDailyQuestDates: string[];
   signedUp: boolean;
 }
 

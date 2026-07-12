@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { addCrewLink, completeQuest, createGuestProfile, redeemReferral } from "@/lib/quest";
+import { addCrewLink, completeDailyQuest, createGuestProfile, redeemReferral } from "@/lib/quest";
 import type { Craving, PlayerProfile, Quest, Restaurant } from "@/lib/types";
 
 interface GameState {
@@ -43,7 +43,7 @@ export const useGameStore = create<GameState>()(
         selectedRestaurantId: restaurant.id,
       })),
       finishQuest: (restaurant) => set((state) => ({
-        profile: completeQuest(state.profile, restaurant, new Date().toISOString().slice(0, 10)),
+        profile: completeDailyQuest(state.profile, restaurant, new Date().toISOString().slice(0, 10)),
         activeQuest: state.activeQuest ? { ...state.activeQuest, status: "completed" } : null,
       })),
       finishOnboarding: () => set({ onboardingComplete: true }),
